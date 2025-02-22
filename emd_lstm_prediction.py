@@ -150,68 +150,52 @@ def lstm_prediction(dataset):
     y_test = y[split + 1 :, :]
 
     total_size = x_train.shape[0]
-
-    with lstm_graph.as_default():
-        inputs = tf.placeholder("float", [None, num_steps, input_size])
-        targets = tf.placeholder("float", [None, input_size])
-
-        def _create_one_cell():
-            lstm_cell = tf.contrib.rnn.LSTMCell(lstm_size, state_is_tuple=True)
-            if keep_prob < 1.0:
-                lstm_cell = tf.contrib.rnn.DropoutWrapper(
-                    lstm_cell, output_keep_prob=keep_prob
-                )
-            return lstm_cell
-
-        cell = (
-            tf.contrib.rnn.MultiRNNCell(
-                [_create_one_cell() for _ in range(num_layers)], state_is_tuple=True
-            )
-            if num_layers > 1
-            else _create_one_cell()
+    
+    lstm_cells = []
+    for _ in range(num_layers):
+        lstm_cell = tf.keras.layers.LSTM(
+            lstm_size, return_sequences=True if _ < num_layers - 1 else False
         )
-
-        #    learningrate = 0.1
-        val, _ = tf.nn.dynamic_rnn(cell, inputs, dtype=tf.float32)
-        val = tf.transpose(val, [1, 0, 2])
-        last = tf.gather(val, int(val.get_shape()[0]) - 1, name="last_lstm_output")
-        weight = tf.Variable(tf.truncated_normal([lstm_size, input_size]))
-        bias = tf.Variable(tf.constant(0.1, shape=[input_size]))
-        prediction = tf.matmul(last, weight) + bias
-        loss = tf.reduce_mean(tf.square(prediction - targets))
-        optimizer = tf.train.AdamOptimizer().minimize(loss)
-
-    with tf.Session(graph=lstm_graph) as sess:
-        tf.global_variables_initializer().run()
-        test_data_feed = {inputs: x_test, targets: y_test}
-
-        for epoch_step in range(max_epoch):
-            total_batch = int(total_size / batch_size)
-
-            for i in range(total_batch):
-                batch_X = x_train[i * batch_size : (i + 1) * batch_size, :, :]
-                batch_y = y_train[i * batch_size : (i + 1) * batch_size, :]
-                train_data_feed = {inputs: batch_X, targets: batch_y}
-                train_loss, _ = sess.run([optimizer, loss], train_data_feed)
-
-            if epoch_step % 1 == 0:
-                (
-                    test_loss,
-                    _pred,
-                ) = sess.run([loss, prediction], test_data_feed)
-                train_loss, _ = sess.run([loss, prediction], train_data_feed)
-                print("Epoch test loss %d :" % (epoch_step), test_loss)
-                print("Epoch train loss %d :" % (epoch_step), train_loss)
-
-        whole_train_data_feed = {inputs: x_train, targets: y_train}
-        train_final_prediction, train_final_loss = sess.run(
-            [prediction, loss], whole_train_data_feed
-        )
-
-        final_prediction, final_loss = sess.run([prediction, loss], test_data_feed)
-
+        lstm_cells.append(lstm_cell)
+        if keep_prob < 1.0:
+            dropout = tf.keras.layers.Dropout(rate=1 - keep_prob)
+        lstm_cells.append(dropout)
+    
+    lstm_cells.append(tf.keras.layers.Dense(input_size))
+    model = tf.keras.Sequential(lstm_cells)
+    
+    # Create and compile the model
+    optimizer = tf.keras.optimizers.Adam()
+    model.compile(optimizer=optimizer, loss="mse")
+    
+    # Training loop
+    for epoch_step in range(max_epoch):
+        total_batch = int(total_size / batch_size)
+    
+        for i in range(total_batch):
+            batch_X = x_train[i * batch_size : (i + 1) * batch_size, :, :]
+            batch_y = y_train[i * batch_size : (i + 1) * batch_size, :]
+    
+            # Train on batch
+            train_loss = model.train_on_batch(batch_X, batch_y)
+    
+        if epoch_step % 1 == 0:
+            # Compute test loss
+            test_loss = model.evaluate(x_test, y_test, verbose=0)
+            train_loss = model.evaluate(x_train, y_train, verbose=0)
+            print("Epoch test loss %d :" % (epoch_step), test_loss)
+            print("Epoch train loss %d :" % (epoch_step), train_loss)
+    
+    # Final predictions
+    train_final_prediction = model.predict(x_train)
+    train_final_loss = model.evaluate(x_train, y_train, verbose=0)
+    
+    final_prediction = model.predict(x_test)
+    final_loss = model.evaluate(x_test, y_test, verbose=0)
+    
     y_pred = final_prediction.reshape(-1, 1)
     x_pred = train_final_prediction.reshape(-1, 1)
+
     return np.squeeze(y_pred), final_loss, np.squeeze(x_pred), train_final_loss
 
 
