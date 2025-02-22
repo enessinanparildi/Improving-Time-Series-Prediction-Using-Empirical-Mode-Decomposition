@@ -169,102 +169,78 @@ def neuralNetworkPredictionRegression(
     n_hidden_2 = 20
     n_hidden_3 = 20
 
-    def multilayer_perceptron(x, weights, biases):
-        layer_1 = tf.add(tf.matmul(x, weights["h1"]), biases["b1"])
-        layer_1 = tf.nn.tanh(layer_1)
-
-        layer_2 = tf.add(tf.matmul(layer_1, weights["h2"]), biases["b2"])
-        layer_2 = tf.nn.tanh(layer_2)
-
-        layer_3 = tf.add(tf.matmul(layer_2, weights["h3"]), biases["b3"])
-        layer_3 = tf.nn.tanh(layer_3)
-
-        out_layer = tf.matmul(layer_3, weights["out"]) + biases["out"]
-        return out_layer
-
-    weights = {
-        "h1": tf.Variable(
-            tf.truncated_normal([dim, n_hidden_1], stddev=math.sqrt(2.0 / (dim)))
-        ),
-        "h2": tf.Variable(
-            tf.truncated_normal(
-                [n_hidden_1, n_hidden_2], stddev=math.sqrt(2.0 / (n_hidden_1))
+   class MLP(tf.keras.Model):
+        def __init__(self):
+            super(MLP, self).__init__()
+    
+            # Hidden layer 1 with tanh activation
+            self.layer1 = tf.keras.layers.Dense(
+                n_hidden_1,
+                activation="tanh",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / dim)
+                ),
+                bias_initializer="zeros",
+                kernel_regularizer=tf.keras.regularizers.l2(betanum),
             )
-        ),
-        "h3": tf.Variable(
-            tf.truncated_normal(
-                [n_hidden_2, n_hidden_3], stddev=math.sqrt(2.0 / (n_hidden_2))
+    
+            # Hidden layer 2 with tanh activation
+            self.layer2 = tf.keras.layers.Dense(
+                n_hidden_2,
+                activation="tanh",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / n_hidden_1)
+                ),
+                bias_initializer="zeros",
+                kernel_regularizer=tf.keras.regularizers.l2(betanum),
             )
-        ),
-        "out": tf.Variable(
-            tf.truncated_normal([n_hidden_3, 1], stddev=math.sqrt(2.0 / (n_hidden_3)))
-        ),
-    }
-    biases = {
-        "b1": tf.Variable(tf.zeros([n_hidden_1])),
-        "b2": tf.Variable(tf.zeros([n_hidden_2])),
-        "b3": tf.Variable(tf.zeros([n_hidden_3])),
-        "out": tf.Variable(tf.zeros([1])),
-    }
+    
+            # Hidden layer 3 with tanh activation
+            self.layer3 = tf.keras.layers.Dense(
+                n_hidden_3,
+                activation="tanh",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / n_hidden_2)
+                ),
+                bias_initializer="zeros",
+                kernel_regularizer=tf.keras.regularizers.l2(betanum),
+            )
+    
+            # Output layer with linear activation
+            self.out_layer = tf.keras.layers.Dense(
+                1,
+                activation=None,
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / n_hidden_3)
+                ),
+                bias_initializer="zeros",
+            )
+    
+        def call(self, x, training=False):
+            x = self.layer1(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            x = self.out_layer(x)
+            return tf.squeeze(x, axis=-1)
 
-    beta = betanum
-    pred = multilayer_perceptron(x, weights, biases)
-    pred = tf.squeeze(pred)
-    cost = tf.squared_difference(y, pred)
 
-    regularizer = (
-            tf.nn.l2_loss(weights["h1"])
-            + tf.nn.l2_loss(weights["h2"])
-            + tf.nn.l2_loss(weights["h3"])
-    )
-    cost = tf.reduce_mean(cost + beta * regularizer)
-
-    optimizer = tf.train.AdamOptimizer().minimize(cost)
-
-    init = tf.global_variables_initializer()
-    training_epochs = epochnum
-    batch_size = 28
-    display_step = 1
-    with tf.Session() as sess:
-        sess.run(init)
-
-        # Training cycle
-        for epoch in range(training_epochs):
-            avg_cost = 0.0
-            total_batch = int(len(traininglabels) / batch_size)
-            # Loop over all batches
-            for i in range(total_batch):
-                batch_x = trainingdataset[i * batch_size: (i + 1) * batch_size, :]
-                batch_y = traininglabels[i * batch_size: (i + 1) * batch_size]
-                # Run optimization op (backprop) and cost op (to get loss value)
-                _, c = sess.run([optimizer, cost], feed_dict={x: batch_x, y: batch_y})
-                # Compute average loss
-                avg_cost += c / total_batch
-            # Display logs per epoch step
-            if epoch % display_step == 0:
-                #                print("ber:" , ber )
-                print(
-                    "Epoch:", "%04d" % (epoch + 1), "cost=", "{:.9f}".format(avg_cost)
-                )
-        print("Optimization Finished!")
-        #        saver.save(sess,trainedmodeldirectory)
-        # Test model
-        test_mse_error_vector = tf.squared_difference(y, pred)
-        predictions = pred.eval(feed_dict={x: testdataset})
-        test_mse_error_vector = test_mse_error_vector.eval(
-            feed_dict={x: testdataset, y: testlabels}
-        )
-        mean_error = np.mean(test_mse_error_vector)
-
-        whole_train_data_feed = {x: trainingdataset, y: traininglabels}
-        train_final_prediction, train_final_loss = sess.run(
-            [pred, cost], whole_train_data_feed
-        )
-
+    model = MLP()
+    model.compile(optimizer=tf.keras.optimizers.Adam(), loss="mean_squared_error")
+    model.fit(x_train, y_train, epochs=epochnum, batch_size=batch_size, verbose=1)
+    
+    
+    test_predictions = model.predict(testdataset)
+    test_mse_error_vector = tf.keras.losses.mean_squared_error(testlabels, test_predictions)
+    mean_error = np.mean(test_mse_error_vector)
+    
+    # Calculate predictions and loss for training data
+    train_final_prediction = model.predict(trainingdataset)
+    train_final_loss = model.evaluate(trainingdataset, traininglabels, verbose=0)
+    
     percantageerror = errorMeasure(predictions, testlabels)
-
+    
     return (predictions, mean_error, train_final_prediction, train_final_loss)
-
+    
 
 def fnn_regression():
     (
