@@ -638,95 +638,102 @@ def fnn_classification(trainingdataset, testdataset, traininglabels, testlabels)
 
     traininglabels = onehottrain
     testlabels = onehottest
-
-    x = tf.placeholder("float", [None, dim])
-    y = tf.placeholder("float", [None, 2])
-
+    dim = trainingdataset.shape[1]  # input dimension
     n_hidden_1 = 30
     n_hidden_2 = 20
     n_hidden_3 = 10
-
-    def multilayer_perceptron(x, weights, biases):
-        layer_1 = tf.add(tf.matmul(x, weights["h1"]), biases["b1"])
-        layer_1 = tf.nn.tanh(layer_1)
-
-        layer_2 = tf.add(tf.matmul(layer_1, weights["h2"]), biases["b2"])
-        layer_2 = tf.nn.tanh(layer_2)
-
-        layer_3 = tf.add(tf.matmul(layer_2, weights["h3"]), biases["b3"])
-        layer_3 = tf.nn.tanh(layer_3)
-
-        out_layer = tf.matmul(layer_3, weights["out"]) + biases["out"]
-        out_layer = tf.nn.softmax(out_layer)
-        return out_layer
-
-    weights = {
-        "h1": tf.Variable(
-            tf.truncated_normal([dim, n_hidden_1], stddev=math.sqrt(2.0 / (dim)))
-        ),
-        "h2": tf.Variable(
-            tf.truncated_normal(
-                [n_hidden_1, n_hidden_2], stddev=math.sqrt(2.0 / (n_hidden_1))
+    num_classes = 2
+    
+    
+    class MLP(tf.keras.Model):
+        def __init__(self):
+            super(MLP, self).__init__()
+    
+            # Hidden layer 1 with tanh activation
+            self.layer1 = tf.keras.layers.Dense(
+                n_hidden_1,
+                activation="tanh",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / dim)
+                ),
+                bias_initializer="zeros",
             )
-        ),
-        "h3": tf.Variable(
-            tf.truncated_normal(
-                [n_hidden_2, n_hidden_3], stddev=math.sqrt(2.0 / (n_hidden_2))
+    
+            # Hidden layer 2 with tanh activation
+            self.layer2 = tf.keras.layers.Dense(
+                n_hidden_2,
+                activation="tanh",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / n_hidden_1)
+                ),
+                bias_initializer="zeros",
             )
-        ),
-        "out": tf.Variable(
-            tf.truncated_normal([n_hidden_3, 2], stddev=math.sqrt(2.0 / (n_hidden_3)))
-        ),
-    }
-    biases = {
-        "b1": tf.Variable(tf.zeros([n_hidden_1])),
-        "b2": tf.Variable(tf.zeros([n_hidden_2])),
-        "b3": tf.Variable(tf.zeros([n_hidden_3])),
-        "out": tf.Variable(tf.zeros([2])),
-    }
-
-    pred = multilayer_perceptron(x, weights, biases)
-    #    pred = tf.squeeze(pred)
-    cost = tf.reduce_mean(
-        tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y)
+    
+            # Hidden layer 3 with tanh activation
+            self.layer3 = tf.keras.layers.Dense(
+                n_hidden_3,
+                activation="tanh",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / n_hidden_2)
+                ),
+                bias_initializer="zeros",
+            )
+    
+            # Output layer with softmax activation
+            self.out_layer = tf.keras.layers.Dense(
+                num_classes,
+                activation="softmax",
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(
+                    stddev=math.sqrt(2.0 / n_hidden_3)
+                ),
+                bias_initializer="zeros",
+            )
+    
+        def call(self, x, training=False):
+            x = self.layer1(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            return self.out_layer(x)
+    
+    
+    # Create and compile the model
+    model = MLP()
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(),
+        loss=tf.keras.losses.CategoricalCrossentropy(),
+        metrics=["accuracy"],
     )
-
-    optimizer = tf.train.AdamOptimizer().minimize(cost)
-
-    init = tf.global_variables_initializer()
+    
+    # Training parameters
     training_epochs = 100
     batch_size = 28
-    display_step = 1
-    with tf.Session() as sess:
-        sess.run(init)
+    
+    # Train the model
+    history = model.fit(
+        trainingdataset,
+        traininglabels,
+        epochs=training_epochs,
+        batch_size=batch_size,
+        verbose=1,
+    )
+    
+    print("Optimization Finished!")
+    
+    # Evaluate the model
+    test_loss, test_accuracy = model.evaluate(testdataset, testlabels, verbose=0)
+    print(f"Test accuracy: {test_accuracy:.4f}")
+    
+    # Get predictions
+    predictions = model.predict(testdataset)
+    predicted_classes = tf.argmax(predictions, axis=1)
+    
+    # If you need the raw predictions
+    predictions_raw = predictions
+    
+    # Calculate accuracy manually if needed
+    correct_prediction = tf.equal(tf.argmax(predictions, 1), tf.argmax(testlabels, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-        # Training cycle
-        for epoch in range(training_epochs):
-            avg_cost = 0.0
-            total_batch = int(len(traininglabels) / batch_size)
-            # Loop over all batches
-            for i in range(total_batch):
-                batch_x = trainingdataset[i * batch_size: (i + 1) * batch_size, :]
-                batch_y = traininglabels[i * batch_size: (i + 1) * batch_size]
-                #                    batch_y = np.transpose(batch_y)
-                # Run optimization op (backprop) and cost op (to get loss value)
-                _, c = sess.run([optimizer, cost], feed_dict={x: batch_x, y: batch_y})
-                # Compute average loss
-                avg_cost += c / total_batch
-            # Display logs per epoch step
-            if epoch % display_step == 0:
-                #                print("ber:" , ber )
-                print(
-                    "Epoch:", "%04d" % (epoch + 1), "cost=", "{:.9f}".format(avg_cost)
-                )
-        print("Optimization Finished!")
-        #        saver.save(sess,trainedmodeldirectory)
-        # Test model
-        correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
-        predictions = tf.argmax(pred, 1)
-        predictions = predictions.eval(feed_dict={x: testdataset})
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-        accuracy = accuracy.eval(feed_dict={x: testdataset, y: testlabels})
     return (predictions, accuracy)
 
 
